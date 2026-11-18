@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:17.5-alpine3.20
+    container_name: pwa-sso-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pwa_auth_db
+      POSTGRES_USER: pwa_auth
+      POSTGRES_PASSWORD: pwapass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pwa-sso-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.docker
+    # Check the r6auth setup from inside the container:
+    #   docker compose exec app node dist-scripts/r6auth-check.mjs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # /api/health checks Postgres only; an r6auth outage must not restart the app
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health',{timeout:5000},(r)=>process.exit(r.statusCode===200?0:1)).on('timeout',()=>process.exit(1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres-data:
